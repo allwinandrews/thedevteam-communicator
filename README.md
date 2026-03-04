@@ -7,8 +7,9 @@ Minimal full‑stack demo: React + ASP.NET Core Web API.
 - Logged‑in users can see other users.
 - Users can message other users.
 - Users can see messages sent to them (inbox).
-- Offline handling: messages are queued locally and sent on reconnect.
-- Somewhat secure: password hashing + JWT tokens.
+- Presence indicators (online/offline).
+- Offline handling: outgoing messages are queued locally and sent on reconnect.
+- Somewhat secure: password hashing + JWT tokens + auth validation on load.
 
 ## Simplifications
 - In‑memory storage (no database).
