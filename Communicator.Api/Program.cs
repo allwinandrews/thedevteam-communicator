@@ -135,6 +135,12 @@ authGroup.MapPost("/messages", async (SendMessageRequest request, ClaimsPrincipa
         return Results.Unauthorized();
     }
 
+    var sender = users.FindById(senderId);
+    if (sender == null)
+    {
+        return Results.Unauthorized();
+    }
+
     var recipient = users.FindById(request.ToUserId);
     if (recipient == null)
     {
@@ -161,14 +167,7 @@ authGroup.MapPost("/messages", async (SendMessageRequest request, ClaimsPrincipa
 
     messages.Add(message);
 
-    var dto = new MessageDto(
-        message.Id,
-        message.FromUserId,
-        message.ToUserId,
-        message.Content,
-        message.SentAtUtc,
-        message.ClientMessageId
-    );
+    var dto = ToMessageDto(message, sender.UserName, recipient.UserName);
 
     await hubContext.Clients.User(recipient.Id.ToString()).SendAsync("message", dto);
     await hubContext.Clients.User(senderId.ToString()).SendAsync("message", dto);
@@ -176,12 +175,17 @@ authGroup.MapPost("/messages", async (SendMessageRequest request, ClaimsPrincipa
     return Results.Ok(dto);
 });
 
-authGroup.MapGet("/messages/inbox", (ClaimsPrincipal principal, MessageStore messages) =>
+authGroup.MapGet("/messages/inbox", (ClaimsPrincipal principal, UserStore users, MessageStore messages) =>
 {
     var userId = principal.GetUserId();
     var inbox = messages.ForRecipient(userId)
         .OrderBy(m => m.SentAtUtc)
-        .Select(m => new MessageDto(m.Id, m.FromUserId, m.ToUserId, m.Content, m.SentAtUtc, m.ClientMessageId))
+        .Select(m =>
+        {
+            var senderName = users.FindById(m.FromUserId)?.UserName ?? string.Empty;
+            var recipientName = users.FindById(m.ToUserId)?.UserName ?? string.Empty;
+            return ToMessageDto(m, senderName, recipientName);
+        })
         .ToList();
 
     return Results.Ok(inbox);
@@ -201,9 +205,20 @@ authGroup.MapGet("/messages/thread/{userId:guid}", (Guid userId, ClaimsPrincipal
         return Results.NotFound();
     }
 
+    var currentUser = users.FindById(currentUserId);
+    if (currentUser == null)
+    {
+        return Results.Unauthorized();
+    }
+
     var thread = messages.ForThread(currentUserId, userId)
         .OrderBy(m => m.SentAtUtc)
-        .Select(m => new MessageDto(m.Id, m.FromUserId, m.ToUserId, m.Content, m.SentAtUtc, m.ClientMessageId))
+        .Select(m =>
+        {
+            var senderName = m.FromUserId == currentUserId ? currentUser.UserName : otherUser.UserName;
+            var recipientName = m.ToUserId == currentUserId ? currentUser.UserName : otherUser.UserName;
+            return ToMessageDto(m, senderName, recipientName);
+        })
         .ToList();
 
     return Results.Ok(thread);
@@ -238,13 +253,16 @@ authGroup.MapPost("/presence/ping", (ClaimsPrincipal principal, PresenceStore pr
     return Results.NoContent();
 });
 
+MessageDto ToMessageDto(MessageRecord message, string fromUserName, string toUserName) =>
+    new(message.Id, message.FromUserId, message.ToUserId, message.Content, message.SentAtUtc, message.ClientMessageId, fromUserName, toUserName);
+
 app.Run();
 
 record RegisterRequest(string UserName, string Password);
 record LoginRequest(string UserName, string Password);
 record AuthResponse(string Token, Guid UserId, string UserName);
 record SendMessageRequest(Guid ToUserId, string Content, string ClientMessageId);
-record MessageDto(Guid Id, Guid FromUserId, Guid ToUserId, string Content, DateTimeOffset SentAtUtc, string ClientMessageId);
+record MessageDto(Guid Id, Guid FromUserId, Guid ToUserId, string Content, DateTimeOffset SentAtUtc, string ClientMessageId, string FromUserName, string ToUserName);
 
 record UserRecord(Guid Id, string UserName)
 {

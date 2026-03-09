@@ -92,6 +92,13 @@ function clearChatHash() {
   }
 }
 
+function getDisplayNameFromMessage(message, userId) {
+  if (!message || !userId) return ''
+  if (message.fromUserId === userId) return message.fromUserName || ''
+  if (message.toUserId === userId) return message.toUserName || ''
+  return ''
+}
+
 async function apiRequest(path, options = {}, token) {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -821,11 +828,26 @@ export default function App() {
     }, 5000)
   }
 
+  const conversationUsers = useMemo(() => {
+    const byId = new Map(users.map((user) => [user.id, user]))
+
+    Object.entries(lastMessageByUser).forEach(([userId, message]) => {
+      if (!userId || byId.has(userId)) return
+      const userName = getDisplayNameFromMessage(message, userId)
+      byId.set(userId, {
+        id: userId,
+        userName: userName || 'Unknown user',
+      })
+    })
+
+    return Array.from(byId.values())
+  }, [users, lastMessageByUser])
+
   const filteredUsers = useMemo(() => {
     const term = search.trim().toLowerCase()
-    if (!term) return users
-    return users.filter((u) => u.userName.toLowerCase().includes(term))
-  }, [users, search])
+    if (!term) return conversationUsers
+    return conversationUsers.filter((u) => u.userName.toLowerCase().includes(term))
+  }, [conversationUsers, search])
 
   const orderedUsers = useMemo(() => {
     const withTime = filteredUsers.map((user) => ({
@@ -893,7 +915,7 @@ export default function App() {
   const visibleCount = Math.ceil(viewportHeight / itemHeight) + 8
   const endIndex = Math.min(orderedUsers.length, startIndex + visibleCount)
   const visibleUsers = orderedUsers.slice(startIndex, endIndex)
-  const activeUser = users.find((user) => user.id === activeChatId) || null
+  const activeUser = conversationUsers.find((user) => user.id === activeChatId) || null
 
   if (!auth) {
     return (
